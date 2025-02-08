@@ -125,25 +125,29 @@ def extract_associations(root):
         type_attr = elem.get('{http://schema.omg.org/spec/XMI/2.1}type')
         if type_attr == 'uml:Association':
             member_end = elem.get('memberEnd')
-            if member_end:
+            if member_end and len(member_end.split()) == 2:
                 source, target = member_end.split()
                 owned_ends = elem.findall('ownedEnd')
-                multiplicity_source = None
-                multiplicity_target = None
+                multiplicity_source = "1..1"
+                multiplicity_target = "1..1"
+
                 for owned_end in owned_ends:
                     end_type = owned_end.get('type')
+                    lower = owned_end.get('lowerValue', '1')  # Valor inferior de la multiplicidad
+                    upper = owned_end.get('upperValue', '*')  # Valor superior de la multiplicidad
+
                     if end_type == source:
-                        multiplicity_source = owned_end.get('multiplicity')
+                        multiplicity_source = f"{lower}..{upper}"
                     elif end_type == target:
-                        multiplicity_target = owned_end.get('multiplicity')
-                if source and target:
-                    associations.append({
-                        'type': 'association',
-                        'source': source,
-                        'target': target,
-                        'multiplicity1': multiplicity_source,
-                        'multiplicity2': multiplicity_target
-                    })
+                        multiplicity_target = f"{lower}..{upper}"
+
+                associations.append({
+                    'type': 'association',
+                    'source': source,
+                    'target': target,
+                    'multiplicity1': multiplicity_source,
+                    'multiplicity2': multiplicity_target
+                })
     return associations
 
 def extract_dependencies(root):
@@ -266,12 +270,17 @@ def generate_clips_facts(classes, relationships):
     return clips_facts
 
 def write_clips_file(clips_facts, file_path):
-    with open(file_path, 'w') as file:
+    try:
+        print("📝 Contenido del archivo CLP antes de escribir:")
         for fact in clips_facts:
-            file.write(f'{fact}\n')
-################################################################################
- # Agregar la regla al final del archivo
-        file.write('''
+            print(fact)  # Muestra cada hecho en la consola
+
+        with open(file_path, 'w') as file:
+            for fact in clips_facts:
+                file.write(f'{fact}\n')
+            
+            # Escribir reglas al final
+            file.write('''
 (defrule generate-java-code
    
    ?class <- (class (name ?class-name) (attributes $?attributes) (operations $?operations))
@@ -335,10 +344,10 @@ def write_clips_file(clips_facts, file_path):
    (printout t "}" crlf crlf)
 )
 ''')
+        print(f"Archivo CLIPS guardado correctamente en {file_path}")
 
-
-
-
+    except Exception as e:
+        print(f"Error al escribir el archivo CLIPS: {str(e)}")
 
 ##############################################################################            
 

@@ -553,3 +553,45 @@ function downloadXMI() {
     a.click();
     document.body.removeChild(a);
 }
+
+function uploadXMI() {
+    let fileInput = document.getElementById("xmiFile");
+    let file = fileInput.files[0];
+
+    if (!file) {
+        document.getElementById("uploadStatus").innerText = "Por favor, selecciona un archivo XMI.";
+        return;
+    }
+
+    let formData = new FormData();
+    formData.append("file", file);
+
+    fetch("/upload_xmi", {
+        method: "POST",
+        body: formData
+    })
+    .then(response => response.text())
+    .then(data => {
+        document.getElementById("uploadStatus").innerText = "Archivo procesado correctamente.";
+    })
+    .catch(error => {
+        document.getElementById("uploadStatus").innerText = "Error al subir el archivo.";
+    });
+}
+
+function executeClips() {
+    fetch('/run_clips') // Asegúrate de que esta ruta genere el código Java
+        .then(response => {
+            if (response.ok) {
+                // Redirigir a la página de resultados
+                window.location.href = '/view_results';
+            } else {
+                console.error('Error ejecutando CLIPS:', response.statusText);
+                alert('Error al ejecutar CLIPS.');
+            }
+        })
+        .catch(error => {
+            console.error('Error al ejecutar CLIPS:', error);
+            alert('Error al ejecutar CLIPS.');
+        });
+}
