@@ -1,12 +1,12 @@
 from flask import Flask, render_template, request, send_file, redirect, url_for
 import os
 import clips  # clipspy
-from Traductor import parse_xmi, extract_classes, generate_clips_facts, write_clips_file, extract_associations, extract_dependencies, extract_generalizations
+from Traductor import parse_xmi, extract_classes, generate_clips_facts, write_clips_file, run_clips_and_get_java
 
 app = Flask(__name__)
 
-UPLOAD_FOLDER_XMI = "generated/xmi"
-UPLOAD_FOLDER_CLP = "generated/clp"
+UPLOAD_FOLDER_XMI = "generated/xmi/"
+UPLOAD_FOLDER_CLP = "generated/clp/"
 os.makedirs(UPLOAD_FOLDER_XMI, exist_ok=True)
 os.makedirs(UPLOAD_FOLDER_CLP, exist_ok=True)
 
@@ -18,34 +18,34 @@ def index():
 def upload_xmi():
     if 'file' not in request.files:
         return "No file uploaded", 400
-
+    
     file = request.files['file']
     if file.filename == '':
         return "No selected file", 400
 
-    # Guardar el archivo XMI subido
     file_path = os.path.join(UPLOAD_FOLDER_XMI, "diagram.xmi")
     file.save(file_path)
 
-    # Procesar el archivo XMI
     root = parse_xmi(file_path)
-    classes, _ = extract_classes(root)
+    classes, relationships = extract_classes(root)
 
-    # Extraer relaciones
-    generalizations = extract_generalizations(root)
-    associations = extract_associations(root)
-    dependencies = extract_dependencies(root)
+    # 🔍 Verificar si las relaciones llegan correctamente
+    print(f"📌 Relaciones extraídas del XMI: {relationships}")
 
-    # Combinar todas las relaciones
-    relationships = generalizations + associations + dependencies
-
-    # Generar los hechos CLIPS
     clips_facts = generate_clips_facts(classes, relationships)
+    clips_file = os.path.join(UPLOAD_FOLDER_CLP, "output.clp")
+    write_clips_file(clips_facts, clips_file)
 
-    # Guardar los hechos CLIPS en un archivo
-    write_clips_file(clips_facts, os.path.join(UPLOAD_FOLDER_CLP, "output.clp"))
+    if not os.path.exists(clips_file):
+        return "Error: No se generó el archivo CLIPS.", 500
 
-    return "Archivo XMI procesado y convertido a CLIPS", 200
+    print(f"✅ Archivo CLIPS generado correctamente: {clips_file}")
+
+    java_code = run_clips_and_get_java(clips_file)
+    print("📝 Código Java recibido en Flask:")
+    print(java_code)
+
+    return render_template('java_output.html', java_code=java_code)
 
 @app.route('/run_clips')
 def run_clips():

@@ -261,7 +261,19 @@ function drawAgregationDiamond(fromX, fromY, toX, toY) {
 }
 
 function addClass() {
-    const className = document.getElementById('classNameInput').value;
+    const className = document.getElementById('classNameInput').value.trim();
+
+    if (className === "") {
+        alert("El nombre de la clase no puede estar vacío.");
+        return;
+    }
+
+    let existingClass = classes.find(cls => cls.name.toLowerCase() === className.toLowerCase());
+    if (existingClass) {
+        alert("Ya existe una clase con el nombre '" + className + "'. Elige otro nombre.");
+        return;
+    }
+
     const newClass = new UMLClass(className, 50, 50);
     classes.push(newClass);
     updateClassSelects();
@@ -269,31 +281,64 @@ function addClass() {
 }
 
 function addAttribute() {
-    const className = document.getElementById('classNameInput').value;
-    const attribute = document.getElementById('attributeInput').value;
+    const className = document.getElementById('classNameInput').value.trim();
+    const attributeName = document.getElementById('attributeInput').value.trim();
     const visibility = document.getElementById('attributeVisibility').value;
-    const type = document.getElementById('attributeType').value;
-    const attr = `${visibility} ${attribute}:${type}`;
+    const type = document.getElementById('attributeType').value.trim();
+
+    if (className === "" || attributeName === "" || type === "") {
+        alert("Debe ingresar un nombre de clase, un nombre de atributo y un tipo válido.");
+        return;
+    }
 
     const cls = classes.find(c => c.name === className);
-    if (cls) {
-        cls.addAttribute(attr);
-        drawDiagram();
+    if (!cls) {
+        alert("La clase no existe.");
+        return;
     }
+
+    let existingAttribute = cls.attributes.find(attr => attr.toLowerCase().includes(attributeName.toLowerCase()));
+    if (existingAttribute) {
+        alert("Ya existe un atributo con el nombre '" + attributeName + "' en la clase '" + className + "'.");
+        return;
+    }
+
+    const attr = `${visibility} ${attributeName}:${type}`;
+    cls.addAttribute(attr);
+    drawDiagram();
 }
 
 function addMethod() {
-    const className = document.getElementById('classNameInput').value;
-    const method = document.getElementById('methodInput').value;
+    const className = document.getElementById('classNameInput').value.trim();
+    const methodName = document.getElementById('methodInput').value.trim();
     const visibility = document.getElementById('methodVisibility').value;
-    const type = document.getElementById('methodType').value;
-    const meth = `${visibility} ${method}():${type}`;
+    let type = document.getElementById('methodType').value.trim();
+
+    if (className === "" || methodName === "") {
+        alert("Debe ingresar un nombre de clase y un nombre de método.");
+        return;
+    }
+
+    // Si el tipo está vacío, asignar "void" por defecto
+    if (type === "") {
+        type = "void";
+    }
 
     const cls = classes.find(c => c.name === className);
-    if (cls) {
-        cls.addMethod(meth);
-        drawDiagram();
+    if (!cls) {
+        alert("La clase no existe.");
+        return;
     }
+
+    let existingMethod = cls.methods.find(meth => meth.toLowerCase().includes(methodName.toLowerCase() + "()"));
+    if (existingMethod) {
+        alert("Ya existe un método con el nombre '" + methodName + "' en la clase '" + className + "'.");
+        return;
+    }
+
+    const meth = `${visibility} ${methodName}():${type}`;
+    cls.addMethod(meth);
+    drawDiagram();
 }
 
 function addRelation() {
@@ -508,11 +553,23 @@ function generateXMI() {
         });
         cls.methods.forEach(meth => {
             const [visibility, rest] = meth.split(' ');
-            const [name, returnType] = rest.split(':');
-            const escapedReturnType = returnType ? escapeXML(returnType.trim()) : '';
+            let name, returnType;
+        
+            if (rest.includes(":")) {
+                [name, returnType] = rest.split(':');
+            } else {
+                name = rest;
+                returnType = "void";
+            }
+        
+            const escapedReturnType = escapeXML(returnType.trim());
             console.log(`Method - Name: ${name}, ReturnType: ${escapedReturnType}`);
-            xmi += `      <ownedOperation visibility="${visibility}" name="${name.replace('()', '').trim()}" type="${escapedReturnType}" />\n`;
+        
+            xmi += `      <ownedOperation visibility="${visibility}" name="${name.replace('()', '').trim()}">\n`;
+            xmi += `          <type name="${escapedReturnType}"/>\n`;
+            xmi += `      </ownedOperation>\n`;
         });
+        
         xmi += `    </packagedElement>\n`;
     });
 
@@ -543,6 +600,18 @@ function generateXMI() {
 }
 
 function downloadXMI() {
+    if (classes.length === 0) {
+        alert("No se puede descargar XMI sin clases definidas.");
+        return;
+    }
+
+    let emptyClasses = classes.filter(cls => cls.attributes.length === 0 || cls.methods.length === 0);
+
+    if (emptyClasses.length > 0) {
+        alert("Cada clase debe tener al menos un atributo y un método. Revisa: " + emptyClasses.map(cls => cls.name).join(", "));
+        return;
+    }
+    
     const xmi = generateXMI();
     const blob = new Blob([xmi], { type: 'application/xml' });
     const url = URL.createObjectURL(blob);
@@ -577,21 +646,4 @@ function uploadXMI() {
     .catch(error => {
         document.getElementById("uploadStatus").innerText = "Error al subir el archivo.";
     });
-}
-
-function executeClips() {
-    fetch('/run_clips') // Asegúrate de que esta ruta genere el código Java
-        .then(response => {
-            if (response.ok) {
-                // Redirigir a la página de resultados
-                window.location.href = '/view_results';
-            } else {
-                console.error('Error ejecutando CLIPS:', response.statusText);
-                alert('Error al ejecutar CLIPS.');
-            }
-        })
-        .catch(error => {
-            console.error('Error al ejecutar CLIPS:', error);
-            alert('Error al ejecutar CLIPS.');
-        });
 }

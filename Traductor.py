@@ -1,5 +1,41 @@
 import xml.etree.ElementTree as ET
 import os
+import subprocess
+
+def run_clips_and_get_java(clips_file):
+    try:
+        clips_path = r"C:\Program Files\SSS\CLIPS 6.4.2\CLIPSDOS.exe"
+        absolute_clips_file = os.path.abspath(clips_file).replace("\\", "/")
+
+        process = subprocess.Popen(
+            clips_path, 
+            stdin=subprocess.PIPE,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE,
+            text=True
+        )
+
+        commands = f'(batch "{absolute_clips_file}")\n(reset)\n(run)\n(exit)\n'
+        output, error = process.communicate(commands, timeout=10)
+
+        if error:
+            return f"Error ejecutando CLIPS:\n{error}"
+
+        # 🔹 Guardar salida completa para depuración
+        output_file_path = os.path.join(os.getcwd(), "output_java.txt")
+        with open(output_file_path, "w", encoding="utf-8") as file:
+            file.write(output)
+
+        print(f"📂 Se guardó la salida en: {output_file_path}")
+
+        # 🔹 Devolver la salida completa sin filtrar
+        return output  
+
+    except subprocess.TimeoutExpired:
+        return "Error: CLIPS tardó demasiado en responder."
+    except Exception as e:
+        return f"Error ejecutando CLIPS: {e}"
+    
 
 def parse_xmi(file_path):
     tree = ET.parse(file_path)
@@ -9,51 +45,65 @@ def parse_xmi(file_path):
 
 def extract_classes(root):
     classes = []
-    class_dict = {}
+    relationships = []
+
+    print("🔎 Iniciando extracción de clases y relaciones desde XMI...")
+
+    # Espacios de nombres
+    ns = {
+        'xmi': "http://schema.omg.org/spec/XMI/2.1",
+        'uml': "http://www.omg.org/spec/UML/20090901"
+    }
+
+    # 🔍 Buscar clases dentro de `packagedElement` con `xmi:type="uml:Class"`
     for elem in root.findall('.//packagedElement'):
-        type_attr = elem.get('{http://schema.omg.org/spec/XMI/2.1}type')
-        if type_attr == 'uml:Class':
+        if elem.get('{http://schema.omg.org/spec/XMI/2.1}type') == 'uml:Class':
             class_name = elem.get('name')
-            class_info = {
-                'name': class_name,
-                'attributes': [],
-                'operations': []
-            }
-            class_dict[class_name] = class_info
-            # Extraer atributos de la clase
-            for attr in elem.findall('ownedAttribute'):
-                attr_name = attr.get('name')
-                attr_visibility = attr.get('visibility')
-                attr_type = attr.get('type')
-                if attr_visibility == "+":
-                    attr_visibility = "public"
-                if attr_visibility == "-":
-                    attr_visibility = "private"
-                if attr_visibility == "#":
-                    attr_visibility = "protected"
-                class_info['attributes'].append({
-                    'name': attr_name,
-                    'visibility': attr_visibility,
-                    'type': attr_type
-                })
-            # Extraer operaciones de la clase
-            for op in elem.findall('ownedOperation'):
-                op_name = op.get('name')
-                op_visibility = op.get('visibility')
-                op_type = op.get('type')
-                if op_visibility == "+":
-                    op_visibility = "public"
-                if op_visibility == "-":
-                    op_visibility = "private"
-                if op_visibility == "#":
-                    op_visibility = "protected"
-                class_info['operations'].append({
-                    'name': op_name,
-                    'visibility': op_visibility,
-                    'type': op_type
-                })
-            classes.append(class_info)
-    return classes, class_dict
+            if class_name:
+                print(f"✔ Clase detectada: {class_name}")
+                class_info = {
+                    'name': class_name,
+                    'attributes': [],
+                    'operations': []
+                }
+
+                # Buscar atributos dentro de la clase
+                for attr in elem.findall('ownedAttribute'):
+                    attr_name = attr.get('name')
+                    attr_visibility = attr.get('visibility', 'public')
+                    attr_type = attr.get('type', 'None')
+
+                    class_info['attributes'].append({
+                        'name': attr_name,
+                        'visibility': attr_visibility,
+                        'type': attr_type
+                    })
+                    print(f"  ➜ Atributo encontrado: {attr_name} ({attr_type})")
+
+                # Buscar operaciones dentro de la clase
+                for op in elem.findall('ownedOperation'):
+                    op_name = op.get('name')
+                    op_visibility = op.get('visibility', 'public')
+                    op_type = "void"
+
+                    type_elem = op.find('type')
+                    if type_elem is not None and 'name' in type_elem.attrib:
+                        op_type = type_elem.attrib['name']
+
+                    class_info['operations'].append({
+                        'name': op_name,
+                        'visibility': op_visibility,
+                        'type': op_type
+                    })
+                    print(f"  ➜ Operación encontrada: {op_name}, Tipo: {op_type}")
+
+                classes.append(class_info)
+            else:
+                print("⚠ Se encontró un `uml:Class` sin nombre.")
+
+    print(f"📌 Clases detectadas en `extract_classes()`: {classes}")
+    print("🔎 Extracción de clases y relaciones finalizada.")
+    return classes, relationships
 
 def extract_directed_associations(root, class_dict):
     obj_id=1
@@ -215,58 +265,58 @@ def extract_aggregations(root):
 def generate_clips_facts(classes, relationships):
     clips_facts = []
 
-    clips_facts.append('(deftemplate class\n   (slot name)\n   (multislot attributes)\n   (multislot operations))')
-    clips_facts.append('(deftemplate attribute\n   (slot id)\n   (slot class-name)\n   (slot name)\n   (slot visibility)\n   (slot type))')
-    clips_facts.append('(deftemplate operation\n   (slot id)\n   (slot class-name)\n   (slot name)\n   (slot visibility)\n   (slot type))')
-    clips_facts.append('(deftemplate dependency\n   (slot client)\n   (slot supplier))')
-    clips_facts.append('(deftemplate generalization\n   (slot parent)\n   (slot child))')
-    clips_facts.append('(deftemplate directedAssociation\n   (slot source)\n   (slot target)\n   (slot multiplicity1)\n  (slot multiplicity2))')
-    clips_facts.append('(deftemplate association\n   (slot source)\n   (slot target)\n   (slot multiplicity1)\n  (slot multiplicity2))')
-    clips_facts.append('(deftemplate composition\n   (slot whole)\n   (slot part)\n   (slot multiplicity))')
-    clips_facts.append('(deftemplate aggregation\n   (slot whole)\n   (slot part)\n   (slot multiplicity))')
+    # **🔹 Definir correctamente los deftemplates**
+    clips_facts.append('(deftemplate class (slot name) (multislot attributes) (multislot operations))')
+    clips_facts.append('(deftemplate attribute (slot id) (slot class-name) (slot name) (slot visibility) (slot type))')
+    clips_facts.append('(deftemplate operation (slot id) (slot class-name) (slot name) (slot visibility) (slot type))')
+    clips_facts.append('(deftemplate dependency (slot client) (slot supplier))')
+    clips_facts.append('(deftemplate generalization (slot parent) (slot child))')
+    clips_facts.append('(deftemplate directedAssociation (slot source) (slot target) (slot multiplicity1) (slot multiplicity2))')
+    clips_facts.append('(deftemplate association (slot source) (slot target) (slot multiplicity1) (slot multiplicity2))')
+    clips_facts.append('(deftemplate composition (slot whole) (slot part) (slot multiplicity))')
+    clips_facts.append('(deftemplate aggregation (slot whole) (slot part) (slot multiplicity))')
 
     clips_facts.append('(deffacts initial-facts')
 
     attribute_id = 1
     operation_id = 1
-  
+
     for cls in classes:
         attributes = []
         operations = []
 
         for attr in cls['attributes']:
             attr_id = f'attr{attribute_id}'
-            attributes.append(attr_id)
-            
-            clips_facts.append(f'  (attribute (id {attr_id}) (class-name {cls["name"]}) (name {attr["name"]}) (visibility {attr["visibility"]}) (type "{attr["type"]}"))')  # Envolver en comillas
+            clips_facts.append(f'  (attribute (id "{attr_id}") (class-name "{cls["name"]}") (name "{attr["name"]}") (visibility "{attr["visibility"]}") (type "{attr["type"]}"))')
+            attributes.append(f'"{attr_id}"')
             attribute_id += 1
 
         for op in cls['operations']:
             op_id = f'op{operation_id}'
-            operations.append(op_id)
-            clips_facts.append(f'  (operation (id {op_id}) (class-name {cls["name"]}) (name {op["name"]}) (visibility {op["visibility"]}) (type "{op["type"]}"))')  # Envolver en comillas
+            op_type = op.get("type", "void")
+
+            # 🔎 Verificar que `op_type` tiene el valor correcto antes de escribir en CLP
+            print(f"🚀 Verificando método antes de escribir en CLP: Clase={cls['name']}, Método={op['name']}, Tipo={op_type}")
+
+            clips_facts.append(f'  (operation (id "{op_id}") (class-name "{cls["name"]}") '
+                            f'(name "{op["name"]}") (visibility "{op["visibility"]}") (type "{op_type}"))')
+            operations.append(f'"{op_id}"')
             operation_id += 1
 
-        attributes_str = ' '.join(attributes)
-        operations_str = ' '.join(operations)
-        clips_facts.append(f'  (class (name {cls["name"]}) (attributes {attributes_str}) (operations {operations_str}))')
+
+        attributes_str = ' '.join(attributes) if attributes else 'nil'
+        operations_str = ' '.join(operations) if operations else 'nil'
+        print(f"✔ Agregando clase {cls['name']} con atributos {attributes_str} y operaciones {operations_str}")
+        clips_facts.append(f'  (class (name "{cls["name"]}") (attributes {attributes_str}) (operations {operations_str}))')
 
     for rel in relationships:
         if rel['type'] == 'generalization':
-            clips_facts.append(f'  (generalization (parent {rel["parent"]}) (child {rel["child"]}))')
-        elif rel['type'] == 'directedAssociation':
-            clips_facts.append(f'  (directedAssociation (source {rel["source"]}) (target {rel["target"]}) (multiplicity1 {rel["multiplicity1"]}) (multiplicity2 {rel["multiplicity2"]}))')
+            clips_facts.append(f'  (generalization (parent "{rel["parent"]}") (child "{rel["child"]}"))')
         elif rel['type'] == 'association':
-            clips_facts.append(f'  (association (source {rel["source"]}) (target {rel["target"]}) (multiplicity1 {rel["multiplicity1"]}) (multiplicity2 {rel["multiplicity2"]}))')
-        elif rel['type'] == 'dependency':
-            clips_facts.append(f'  (dependency (client {rel["client"]}) (supplier {rel["supplier"]}))')
-        elif rel['type'] == 'composition':
-            clips_facts.append(f'  (composition (whole {rel["whole"]}) (part {rel["part"]}) (multiplicity {rel["multiplicity"]}))')
-        elif rel['type'] == 'aggregation':
-            clips_facts.append(f'  (aggregation (whole {rel["whole"]}) (part {rel["part"]}) (multiplicity {rel["multiplicity"]}))')
+            clips_facts.append(f'  (association (source "{rel["source"]}") (target "{rel["target"]}") (multiplicity1 "{rel["multiplicity1"]}") (multiplicity2 "{rel["multiplicity2"]}"))')
 
-    clips_facts.append(')')
-    
+    clips_facts.append(')')  # Cierre de deffacts
+
     return clips_facts
 
 def write_clips_file(clips_facts, file_path):
