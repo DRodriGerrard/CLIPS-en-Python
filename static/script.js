@@ -345,18 +345,116 @@ function addRelation() {
     const fromClass = document.getElementById('fromClassSelect').value;
     const toClass = document.getElementById('toClassSelect').value;
     const type = document.getElementById('relationType').value;
-    const fromMultiplicity = document.getElementById('multiplicityFrom').value || '1';
-    const toMultiplicity = document.getElementById('multiplicityTo').value || '*';
+    
+    let multiplicity = document.getElementById('multiplicitySelect').value;
 
+    // Si se selecciona "Personalizado", tomar el valor del input de texto
+    if (multiplicity === "custom") {
+        multiplicity = document.getElementById('multiplicityText').value.trim();
+        console.log(`Multiplicidad personalizada ingresada: ${multiplicity}`);
+        if (!/^[0-9]+\.\.[0-9]+$/.test(multiplicity)) {
+            alert("Error: La multiplicidad personalizada debe estar en el formato 'n..m'.");
+            return;
+        }
+    }
+
+    console.log(`Valores seleccionados -> De: ${fromClass}, A: ${toClass}, Tipo: ${type}, Multiplicidad: ${multiplicity}`);
+    
+    // Validar que las clases existen
     const fromCls = classes.find(c => c.name === fromClass);
     const toCls = classes.find(c => c.name === toClass);
-
-    if (fromCls && toCls) {
-        const newRelation = new Relation(fromCls, toCls, type, fromMultiplicity, toMultiplicity);
-        relations.push(newRelation);
-        drawDiagram();
+    if (!fromCls || !toCls) {
+        alert("Error: Una o ambas clases no existen.");
+        return;
     }
+
+    // Validar que la multiplicidad no esté vacía ni sea undefined
+    if (!multiplicity || multiplicity.trim() === "") {
+        alert("Error: La multiplicidad debe tener un valor válido.");
+        return;
+    }
+
+    // Validar la multiplicidad según el tipo de relación
+    if (type === "herencia") {
+        multiplicity = "1"; // La herencia siempre es 1 a 1
+        document.getElementById('multiplicitySelect').value = "1";
+        document.getElementById('multiplicitySelect').disabled = true;
+        document.getElementById('multiplicityText').disabled = true;
+    } else {
+        document.getElementById('multiplicitySelect').disabled = false;
+        document.getElementById('multiplicityText').disabled = false;
+    }
+
+    if (["composición", "agregación"].includes(type) && multiplicity === "*") {
+        alert("Error: En composición y agregación, la multiplicidad debe ser un rango definido o un valor específico.");
+        return;
+    }
+
+    // Validar si la relación permite auto-referencia
+    const allowSelfRelation = ["asociación", "asociaciónDireccional", "dependencia"].includes(type);
+    if (fromClass === toClass && !allowSelfRelation) {
+        alert(`Error: No se puede crear una relación de tipo ${type} para la misma clase.`);
+        return;
+    }
+
+    // Validar que una clase solo tenga un padre en herencia
+    if (type === "herencia") {
+        const hasParent = relations.some(r => r.type === "herencia" && r.toClass === fromClass);
+        if (hasParent) {
+            alert("Error: Una clase solo puede heredar de una única clase padre.");
+            return;
+        }
+    }
+
+    // Validar que no haya más de una composición entre las mismas clases
+    if (type === "composición") {
+        const hasComposition = relations.some(r => r.type === "composición" && 
+                                                 ((r.fromClass === fromClass && r.toClass === toClass) ||
+                                                  (r.fromClass === toClass && r.toClass === fromClass)));
+        if (hasComposition) {
+            alert("Error: Solo puede existir una relación de composición entre dos clases específicas.");
+            return;
+        }
+    }
+
+    // Validar que no se creen relaciones duplicadas
+    const relationExists = relations.some(r => r.fromClass === fromClass && r.toClass === toClass && r.type === type);
+    if (relationExists) {
+        alert("Error: Esta relación ya existe.");
+        return;
+    }
+
+    // Si la relación es una auto-relación, asegurarse de manejar la multiplicidad correctamente
+    if (fromClass === toClass) {
+        console.log(`Auto-relación detectada: ${fromClass}. Multiplicidad: ${multiplicity}`);
+    }
+
+    // Crear y agregar la relación si todas las validaciones pasan
+    const newRelation = new Relation(fromCls, toCls, type, multiplicity, multiplicity);
+    relations.push(newRelation);
+    console.log(`Relación creada -> De: ${fromCls.name}, A: ${toCls.name}, Tipo: ${type}, Multiplicidad: ${multiplicity}`);
+    drawDiagram();
 }
+
+function toggleMultiplicityInput(selectId, textId) {
+    const selectElement = document.getElementById(selectId);
+    const textElement = document.getElementById(textId);
+    textElement.style.display = (selectElement.value === "custom") ? "inline-block" : "none";
+}
+
+// Deshabilitar multiplicidad en relaciones donde no aplica
+document.getElementById('relationType').addEventListener('change', function() {
+    const multiplicitySelect = document.getElementById('multiplicitySelect');
+    const multiplicityText = document.getElementById('multiplicityText');
+    if (this.value === "herencia") {
+        multiplicitySelect.disabled = true;
+        multiplicityText.disabled = true;
+        multiplicitySelect.value = "1"; // Herencia siempre es 1 a 1
+    } else {
+        multiplicitySelect.disabled = false;
+        multiplicityText.disabled = false;
+    }
+});
 
 function updateClassSelects() {
     const fromClassSelect = document.getElementById('fromClassSelect');

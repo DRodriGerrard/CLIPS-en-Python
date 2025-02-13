@@ -63,10 +63,15 @@
             <option value="composición">Composición</option>
             <option value="agregación">Agregación</option>
         </select>
-        <label for="multiplicityFrom">Multiplicidad Origen:</label>
-        <input type="text" id="multiplicityFrom" placeholder="1" size="3">
-        <label for="multiplicityTo">Multiplicidad Destino:</label>
-        <input type="text" id="multiplicityTo" placeholder="*" size="3">
+        <label for="multiplicitySelect">Multiplicidad:</label>
+        <select id="multiplicitySelect" onchange="toggleMultiplicityInput('multiplicitySelect', 'multiplicityText')">
+            <option value="1">1</option>
+            <option value="0..1">0..1</option>
+            <option value="*">*</option>
+            <option value="1..*">1..*</option>
+            <option value="custom">Personalizado</option>
+        </select>
+        <input type="text" id="multiplicityText" placeholder="Ej: 2..5" style="display:none;" />
         <button onclick="addRelation()">Agregar Relación</button>
         <br>
 
