@@ -1,4 +1,4 @@
-const canvas = document.getElementById('umlCanvas');
+const canvas = document.getElementById('umlCanvas'); // Ahora busca el canvas correcto
 const ctx = canvas.getContext('2d');
 let selectedClass = null;
 let offsetX, offsetY;
@@ -15,50 +15,53 @@ class UMLClass {
         this.x = x;
         this.y = y;
         this.width = 180;
-        this.height = 70; // Incluye espacio para las líneas de separación
+        this.height = 70;
         this.attributes = [];
         this.methods = [];
+    }
+
+    addAttribute(attribute) {
+        this.attributes.push(attribute);
+        this.updateSize();
+    }
+
+    addMethod(method) {
+        this.methods.push(method);
+        this.updateSize();
+    }
+
+    updateSize() {
+        const attributeCount = this.attributes.length;
+        const methodCount = this.methods.length;
+        this.height = 70 + (attributeCount + methodCount) * 20;
     }
 
     draw() {
         ctx.strokeRect(this.x, this.y, this.width, this.height);
         ctx.fillText(this.name, this.x + 10, this.y + 15);
+        
         ctx.beginPath();
-        ctx.moveTo(this.x, this.y + 20); // Línea bajo el nombre de la clase
+        ctx.moveTo(this.x, this.y + 20);
         ctx.lineTo(this.x + this.width, this.y + 20);
         ctx.stroke();
-
+        
         let yPosition = this.y + 35;
         this.attributes.forEach(attr => {
             ctx.fillText(attr, this.x + 10, yPosition);
             yPosition += 15;
         });
-
+        
         ctx.beginPath();
-        ctx.moveTo(this.x, yPosition); // Línea bajo los atributos
+        ctx.moveTo(this.x, yPosition);
         ctx.lineTo(this.x + this.width, yPosition);
         ctx.stroke();
-
+        
         yPosition += 15;
         this.methods.forEach(meth => {
             ctx.fillText(meth, this.x + 10, yPosition);
             yPosition += 15;
         });
-
-        this.height = Math.max(70, yPosition - this.y + 10); // Actualizar la altura de la clase
     }
-
-    addAttribute(attr) {
-        this.attributes.push(attr);
-    }
-
-    addMethod(method) {
-        this.methods.push(method);
-    }
-	
-	
-	
-	
 }
 
 class Relation {
@@ -68,87 +71,42 @@ class Relation {
         this.type = type;
         this.fromMultiplicity = fromMultiplicity;
         this.toMultiplicity = toMultiplicity;
-        this.offset = 0; // Offset inicial
-    }
-draw() {
-    const { fromX, fromY, toX, toY } = calculateLinePoints(this.fromClass, this.toClass, this.offset);
-
-    ctx.beginPath();
-    ctx.moveTo(fromX, fromY);
-
-    if (this.type === 'dependencia') {
-        ctx.setLineDash([4, 4]); // Línea discontinua para dependencia
+        this.offset = 0;
     }
 
-    ctx.lineTo(toX, toY);
-    ctx.stroke();
-    ctx.setLineDash([]);
-
-    // Dibuja las flechas o adornos según el tipo de relación
-    if (this.type === 'herencia') {
-        drawInheritanceArrow(toX, toY, fromX, fromY);
-    } else if (this.type === 'composición') {
-        drawCompositionDiamond(fromX, fromY, toX, toY);
-    } else if (this.type === 'agregación') {
-        drawAgregationDiamond(fromX, fromY, toX, toY);
-    } else if (this.type === 'dependencia' || this.type === 'asociaciónDireccional') {
-        drawFlecha(fromX, fromY, toX, toY);
-    }
-
-    // Mostrar multiplicidades (excepto para herencia y dependencia)
-    if (this.type !== 'herencia' && this.type !== 'dependencia') {
-        ctx.font = '12px Arial';
-        ctx.fillText(this.fromMultiplicity, fromX - 10, fromY - 5);
-        ctx.fillText(this.toMultiplicity, toX + 5, toY + 15);
-    }
-}
-
-   draw() {
-          if (this.fromClass === this.toClass) {
+    draw() {
+        if (this.fromClass === this.toClass) {
             drawReflexiveArrow(this.fromClass, this.toMultiplicity);
         } else {
             const { fromX, fromY, toX, toY } = calculateLinePoints(this.fromClass, this.toClass, this.offset);
-
+            
             ctx.beginPath();
             ctx.moveTo(fromX, fromY);
             if (this.type === 'dependencia') {
-                ctx.setLineDash([4, 4]); // Define el patrón de la línea discontinua
+                ctx.setLineDash([4, 4]);
             }
             ctx.lineTo(toX, toY);
             ctx.stroke();
             ctx.setLineDash([]);
-
+            
             if (this.type === 'herencia') {
                 drawInheritanceArrow(toX, toY, fromX, fromY);
-            }
-            if (this.type === 'composición') {
+            } else if (this.type === 'composición') {
                 drawCompositionDiamond(fromX, fromY, toX, toY);
-            }
-            if (this.type === 'agregación') {
+            } else if (this.type === 'agregación') {
                 drawAgregationDiamond(fromX, fromY, toX, toY);
-            }
-            if (this.type === 'dependencia' || this.type === 'asociaciónDireccional') {
+            } else if (this.type === 'dependencia' || this.type === 'asociaciónDireccional') {
                 drawFlecha(fromX, fromY, toX, toY);
             }
-            if ((this.type !== 'herencia') && (this.type !== 'dependencia')) {
+            
+            if (this.type !== 'herencia' && this.type !== 'dependencia') {
                 ctx.font = '12px Arial';
                 ctx.fillText(this.fromMultiplicity, fromX - 10, fromY - 5);
                 ctx.fillText(this.toMultiplicity, toX + 5, toY + 15);
             }
         }
     }
-
-    setOffset(offset) {
-        this.offset = offset;
-    }
 }
-
-
-
-
-
-
-
 
 function drawReflexiveArrow(cls, multiplicity) {
     const startX = cls.x + cls.width / 2;
@@ -391,7 +349,7 @@ function addRelation() {
     }
 
     // Validar si la relación permite auto-referencia
-    const allowSelfRelation = ["asociación", "asociaciónDireccional", "dependencia"].includes(type);
+    const allowSelfRelation = ["asociación", "asociaciónDireccional", "dependencia", "composición", "agregación"].includes(type);
     if (fromClass === toClass && !allowSelfRelation) {
         alert(`Error: No se puede crear una relación de tipo ${type} para la misma clase.`);
         return;
@@ -406,13 +364,13 @@ function addRelation() {
         }
     }
 
-    // Validar que no haya más de una composición entre las mismas clases
-    if (type === "composición") {
-        const hasComposition = relations.some(r => r.type === "composición" && 
-                                                 ((r.fromClass === fromClass && r.toClass === toClass) ||
-                                                  (r.fromClass === toClass && r.toClass === fromClass)));
-        if (hasComposition) {
-            alert("Error: Solo puede existir una relación de composición entre dos clases específicas.");
+    // Validar que no haya más de una composición o agregación entre las mismas clases
+    if (["composición", "agregación", "asociación"].includes(type)) {
+        const hasExistingRelation = relations.some(r => r.type === type && 
+                                                       ((r.fromClass === fromClass && r.toClass === toClass) ||
+                                                        (r.fromClass === toClass && r.toClass === fromClass)));
+        if (hasExistingRelation) {
+            alert(`Error: Solo puede existir una relación de ${type} entre dos clases específicas.`);
             return;
         }
     }
@@ -478,8 +436,47 @@ function updateClassSelects() {
 
 function drawDiagram() {
     ctx.clearRect(0, 0, canvas.width, canvas.height);
+    
+    // Dibujar relaciones primero
     relations.forEach(relation => relation.draw());
+    
+    // Dibujar clases después para que las líneas queden debajo
     classes.forEach(cls => cls.draw());
+}
+
+function drawClass(ctx, cls) {
+    if (!ctx || !cls) return;
+
+    const classWidth = 120;
+    const classHeight = 80;
+    
+    ctx.fillStyle = 'lightblue';
+    ctx.fillRect(cls.x, cls.y, classWidth, classHeight);
+    
+    ctx.strokeStyle = 'black';
+    ctx.strokeRect(cls.x, cls.y, classWidth, classHeight);
+    
+    ctx.fillStyle = 'black';
+    ctx.font = '14px Arial';
+    ctx.fillText(cls.name, cls.x + 10, cls.y + 20);
+}
+
+function drawRelation(ctx, relation, fromClass, toClass) {
+    const fromX = fromClass.x + fromClass.width / 2;
+    const fromY = fromClass.y + fromClass.height;
+    const toX = toClass.x + toClass.width / 2;
+    const toY = toClass.y;
+
+    ctx.beginPath();
+    ctx.moveTo(fromX, fromY);
+    ctx.lineTo(toX, toY);
+    ctx.stroke();
+
+    // Mostrar multiplicidad en ambos extremos correctamente
+    ctx.fillStyle = 'black';
+    ctx.font = '12px Arial';
+    ctx.fillText(relation.multiplicity1, fromX - 20, fromY - 5);
+    ctx.fillText(relation.multiplicity2, toX + 5, toY + 15);
 }
 
 function calculateLinePoints(fromClass, toClass, offset) {
@@ -577,10 +574,6 @@ function intersectionWithLineSegment(x1, y1, x2, y2, x3, y3, x4, y4) {
 function distance(x1, y1, x2, y2) {
     return Math.sqrt((x2 - x1) ** 2 + (y2 - y1) ** 2);
 }
-
-
-
-
 
 canvas.addEventListener('mousedown', function(e) {
     const mouseX = e.offsetX;

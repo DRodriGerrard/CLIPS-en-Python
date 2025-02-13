@@ -2,40 +2,23 @@ import xml.etree.ElementTree as ET
 import os
 import subprocess
 
-def run_clips_and_get_java(clips_file):
+def run_clips_and_get_java(clips_file_path):
+    import subprocess
+
     try:
-        clips_path = r"C:\Program Files\SSS\CLIPS 6.4.2\CLIPSDOS.exe"
-        absolute_clips_file = os.path.abspath(clips_file).replace("\\", "/")
-
-        process = subprocess.Popen(
-            clips_path, 
-            stdin=subprocess.PIPE,
-            stdout=subprocess.PIPE,
-            stderr=subprocess.PIPE,
-            text=True
+        result = subprocess.run(
+            ["clips", "-f2", clips_file_path], capture_output=True, text=True, check=True
         )
-
-        commands = f'(batch "{absolute_clips_file}")\n(reset)\n(run)\n(exit)\n'
-        output, error = process.communicate(commands, timeout=10)
-
-        if error:
-            return f"Error ejecutando CLIPS:\n{error}"
-
-        # 🔹 Guardar salida completa para depuración
-        output_file_path = os.path.join(os.getcwd(), "output_java.txt")
-        with open(output_file_path, "w", encoding="utf-8") as file:
-            file.write(output)
-
-        print(f"📂 Se guardó la salida en: {output_file_path}")
-
-        # 🔹 Devolver la salida completa sin filtrar
-        return output  
-
-    except subprocess.TimeoutExpired:
-        return "Error: CLIPS tardó demasiado en responder."
-    except Exception as e:
+        return result.stdout
+    except subprocess.CalledProcessError as e:
         return f"Error ejecutando CLIPS: {e}"
     
+def process_xmi_to_clips(xmi_path, clips_output_path):
+    classes, relationships = extract_classes_and_relationships(xmi_path)
+    clips_facts = generate_clips_facts(classes, relationships)
+    write_clips_file(clips_facts, clips_output_path)
+    java_code = run_clips_and_get_java(clips_output_path)
+    return java_code
 
 def parse_xmi(file_path):
     tree = ET.parse(file_path)
@@ -43,66 +26,40 @@ def parse_xmi(file_path):
     print(f"Root element: {root.tag}")
     return root
 
-def extract_classes(root):
-    classes = []
-    relationships = []
+def extract_classes_and_relationships(xmi_path):
+    import xml.etree.ElementTree as ET
 
-    print("🔎 Iniciando extracción de clases y relaciones desde XMI...")
+    tree = ET.parse(xmi_path)
+    root = tree.getroot()
 
-    # Espacios de nombres
     ns = {
         'xmi': "http://schema.omg.org/spec/XMI/2.1",
         'uml': "http://www.omg.org/spec/UML/20090901"
     }
 
-    # 🔍 Buscar clases dentro de `packagedElement` con `xmi:type="uml:Class"`
-    for elem in root.findall('.//packagedElement'):
+    classes = []
+    relationships = []
+
+    for elem in root.findall('.//packagedElement', ns):
         if elem.get('{http://schema.omg.org/spec/XMI/2.1}type') == 'uml:Class':
             class_name = elem.get('name')
-            if class_name:
-                print(f"✔ Clase detectada: {class_name}")
-                class_info = {
-                    'name': class_name,
-                    'attributes': [],
-                    'operations': []
-                }
+            attributes = [attr.get('name') for attr in elem.findall('ownedAttribute', ns)]
+            operations = [op.get('name') for op in elem.findall('ownedOperation', ns)]
+            classes.append({'name': class_name, 'attributes': attributes, 'operations': operations})
 
-                # Buscar atributos dentro de la clase
-                for attr in elem.findall('ownedAttribute'):
-                    attr_name = attr.get('name')
-                    attr_visibility = attr.get('visibility', 'public')
-                    attr_type = attr.get('type', 'None')
+        elif elem.get('{http://schema.omg.org/spec/XMI/2.1}type') in ['uml:Association', 'uml:Composition', 'uml:Aggregation']:
+            relation_type = elem.get('{http://schema.omg.org/spec/XMI/2.1}type').split(':')[-1].lower()
+            member_end = elem.get('memberEnd', '').split()
+            if len(member_end) == 2:
+                source, target = member_end
+                multiplicity1 = elem.find('ownedEnd[@type="' + source + '"]', ns).get('lowerValue', '1') + '..' + \
+                                elem.find('ownedEnd[@type="' + source + '"]', ns).get('upperValue', '*')
+                multiplicity2 = elem.find('ownedEnd[@type="' + target + '"]', ns).get('lowerValue', '1') + '..' + \
+                                elem.find('ownedEnd[@type="' + target + '"]', ns).get('upperValue', '*')
 
-                    class_info['attributes'].append({
-                        'name': attr_name,
-                        'visibility': attr_visibility,
-                        'type': attr_type
-                    })
-                    print(f"  ➜ Atributo encontrado: {attr_name} ({attr_type})")
+                relationships.append({'type': relation_type, 'from': source, 'to': target, 
+                                      'multiplicity1': multiplicity1, 'multiplicity2': multiplicity2})
 
-                # Buscar operaciones dentro de la clase
-                for op in elem.findall('ownedOperation'):
-                    op_name = op.get('name')
-                    op_visibility = op.get('visibility', 'public')
-                    op_type = "void"
-
-                    type_elem = op.find('type')
-                    if type_elem is not None and 'name' in type_elem.attrib:
-                        op_type = type_elem.attrib['name']
-
-                    class_info['operations'].append({
-                        'name': op_name,
-                        'visibility': op_visibility,
-                        'type': op_type
-                    })
-                    print(f"  ➜ Operación encontrada: {op_name}, Tipo: {op_type}")
-
-                classes.append(class_info)
-            else:
-                print("⚠ Se encontró un `uml:Class` sin nombre.")
-
-    print(f"📌 Clases detectadas en `extract_classes()`: {classes}")
-    print("🔎 Extracción de clases y relaciones finalizada.")
     return classes, relationships
 
 def extract_directed_associations(root, class_dict):
@@ -265,153 +222,79 @@ def extract_aggregations(root):
 def generate_clips_facts(classes, relationships):
     clips_facts = []
 
-    # **🔹 Definir correctamente los deftemplates**
+    # Plantillas para clases
     clips_facts.append('(deftemplate class (slot name) (multislot attributes) (multislot operations))')
-    clips_facts.append('(deftemplate attribute (slot id) (slot class-name) (slot name) (slot visibility) (slot type))')
-    clips_facts.append('(deftemplate operation (slot id) (slot class-name) (slot name) (slot visibility) (slot type))')
-    clips_facts.append('(deftemplate dependency (slot client) (slot supplier))')
-    clips_facts.append('(deftemplate generalization (slot parent) (slot child))')
-    clips_facts.append('(deftemplate directedAssociation (slot source) (slot target) (slot multiplicity1) (slot multiplicity2))')
-    clips_facts.append('(deftemplate association (slot source) (slot target) (slot multiplicity1) (slot multiplicity2))')
-    clips_facts.append('(deftemplate composition (slot whole) (slot part) (slot multiplicity))')
-    clips_facts.append('(deftemplate aggregation (slot whole) (slot part) (slot multiplicity))')
 
-    clips_facts.append('(deffacts initial-facts')
+    # Plantillas para relaciones nuevas
+    clips_facts.append('(deftemplate association (slot source) (slot target) (multiplicity1) (multiplicity2))')
+    clips_facts.append('(deftemplate composition (slot whole) (slot part) (multiplicity))')
+    clips_facts.append('(deftemplate aggregation (slot whole) (slot part) (multiplicity))')
 
-    attribute_id = 1
-    operation_id = 1
-
+    # Generar hechos para clases
     for cls in classes:
-        attributes = []
-        operations = []
+        attributes = ' '.join([f'"{attr}"' for attr in cls['attributes']])
+        operations = ' '.join([f'"{op}"' for op in cls['operations']])
+        clips_facts.append(f'(class (name "{cls["name"]}") (attributes {attributes}) (operations {operations}))')
 
-        for attr in cls['attributes']:
-            attr_id = f'attr{attribute_id}'
-            clips_facts.append(f'  (attribute (id "{attr_id}") (class-name "{cls["name"]}") (name "{attr["name"]}") (visibility "{attr["visibility"]}") (type "{attr["type"]}"))')
-            attributes.append(f'"{attr_id}"')
-            attribute_id += 1
-
-        for op in cls['operations']:
-            op_id = f'op{operation_id}'
-            op_type = op.get("type", "void")
-
-            # 🔎 Verificar que `op_type` tiene el valor correcto antes de escribir en CLP
-            print(f"🚀 Verificando método antes de escribir en CLP: Clase={cls['name']}, Método={op['name']}, Tipo={op_type}")
-
-            clips_facts.append(f'  (operation (id "{op_id}") (class-name "{cls["name"]}") '
-                            f'(name "{op["name"]}") (visibility "{op["visibility"]}") (type "{op_type}"))')
-            operations.append(f'"{op_id}"')
-            operation_id += 1
-
-
-        attributes_str = ' '.join(attributes) if attributes else 'nil'
-        operations_str = ' '.join(operations) if operations else 'nil'
-        print(f"✔ Agregando clase {cls['name']} con atributos {attributes_str} y operaciones {operations_str}")
-        clips_facts.append(f'  (class (name "{cls["name"]}") (attributes {attributes_str}) (operations {operations_str}))')
-
+    # Generar hechos para relaciones
     for rel in relationships:
-        if rel['type'] == 'generalization':
-            clips_facts.append(f'  (generalization (parent "{rel["parent"]}") (child "{rel["child"]}"))')
-        elif rel['type'] == 'association':
-            clips_facts.append(f'  (association (source "{rel["source"]}") (target "{rel["target"]}") (multiplicity1 "{rel["multiplicity1"]}") (multiplicity2 "{rel["multiplicity2"]}"))')
-
-    clips_facts.append(')')  # Cierre de deffacts
+        if rel['type'] == 'asociación':
+            clips_facts.append(f'(association (source "{rel["from"]}") (target "{rel["to"]}") '
+                               f'(multiplicity1 "{rel["multiplicity1"]}") (multiplicity2 "{rel["multiplicity2"]}"))')
+        elif rel['type'] == 'composición':
+            clips_facts.append(f'(composition (whole "{rel["from"]}") (part "{rel["to"]}") '
+                               f'(multiplicity "{rel["multiplicity1"]}"))')
+        elif rel['type'] == 'agregación':
+            clips_facts.append(f'(aggregation (whole "{rel["from"]}") (part "{rel["to"]}") '
+                               f'(multiplicity "{rel["multiplicity1"]}"))')
 
     return clips_facts
 
 def write_clips_file(clips_facts, file_path):
-    try:
-        print("📝 Contenido del archivo CLP antes de escribir:")
+    with open(file_path, 'w') as file:
         for fact in clips_facts:
-            print(fact)  # Muestra cada hecho en la consola
+            file.write(f'{fact}\n')
 
-        with open(file_path, 'w') as file:
-            for fact in clips_facts:
-                file.write(f'{fact}\n')
-            
-            # Escribir reglas al final
-            file.write('''
-(defrule generate-java-code
-   
-   ?class <- (class (name ?class-name) (attributes $?attributes) (operations $?operations))
-   (generalization (parent ?class-name) (child ?x))
-   =>
-   (printout t "// Java code for class " ?class-name crlf)
-   (printout t "public class " ?class-name " extends " ?x " {" crlf)
-   
-   ;; Imprimir atributos
-   (do-for-all-facts ((?attr attribute))
-      (and
-         (member$ (fact-slot-value ?attr id) $?attributes)
-         (eq (fact-slot-value ?attr class-name) ?class-name))
-      (bind ?visibility (fact-slot-value ?attr visibility))
-      (bind ?type (fact-slot-value ?attr type))
-      (bind ?name (fact-slot-value ?attr name))
-      (printout t  "   " ?visibility " " ?type " " ?name ";" crlf))
-   
-   ;; Imprimir métodos
-   (do-for-all-facts ((?op operation))
-      (and
-         (member$ (fact-slot-value ?op id) $?operations)
-         (eq (fact-slot-value ?op class-name) ?class-name))
-      (bind ?visibility (fact-slot-value ?op visibility))
-      (bind ?type (fact-slot-value ?op type))
-      (bind ?name (fact-slot-value ?op name))
-      (printout t "   " ?visibility " " ?type " " ?name "()" " {" crlf
-                "      // method body" crlf "   }" crlf))
-   
-   (printout t "}" crlf crlf)
-)
-                   
-(defrule generate-java-code-no-inheritance
-   ?class <- (class (name ?class-name) (attributes $?attributes) (operations $?operations))
-   (not (generalization (parent ?class-name)))
-    =>
-   (printout t "// Java code for class " ?class-name crlf)
-   (printout t "public class " ?class-name " {" crlf)
-   
-   ;; Imprimir atributos
-   (do-for-all-facts ((?attr attribute))
-      (and
-         (member$ (fact-slot-value ?attr id) $?attributes)
-         (eq (fact-slot-value ?attr class-name) ?class-name))
-      (bind ?visibility (fact-slot-value ?attr visibility))
-      (bind ?type (fact-slot-value ?attr type))
-      (bind ?name (fact-slot-value ?attr name))
-      (printout t  "   " ?visibility " " ?type " " ?name ";" crlf))
-   
-   ;; Imprimir métodos
-   (do-for-all-facts ((?op operation))
-      (and
-         (member$ (fact-slot-value ?op id) $?operations)
-         (eq (fact-slot-value ?op class-name) ?class-name))
-      (bind ?visibility (fact-slot-value ?op visibility))
-      (bind ?type (fact-slot-value ?op type))
-      (bind ?name (fact-slot-value ?op name))
-      (printout t "   " ?visibility " " ?type " " ?name "()" " {" crlf
-                "      // method body" crlf "   }" crlf))
-   
-   (printout t "}" crlf crlf)
-)
-''')
-        print(f"Archivo CLIPS guardado correctamente en {file_path}")
+        # Reglas CLIPS para generación de código Java
+        file.write('''
+        (defrule generate-java-code-association
+            ?assoc <- (association (source ?source) (target ?target) (multiplicity1 ?m1) (multiplicity2 ?m2))
+            =>
+            (printout t "// Asociación entre " ?source " y " ?target crlf)
+            (printout t "class " ?source " {" crlf)
+            (printout t "   ArrayList<" ?target "> relaciones;" crlf "}" crlf)
+        )
 
-    except Exception as e:
-        print(f"Error al escribir el archivo CLIPS: {str(e)}")
+        (defrule generate-java-code-composition
+            ?comp <- (composition (whole ?whole) (part ?part) (multiplicity ?m))
+            =>
+            (printout t "// Composición entre " ?whole " y " ?part crlf)
+            (printout t "class " ?whole " {" crlf)
+            (printout t "   TreeSet<" ?part "> partes;" crlf "}" crlf)
+        )
+
+        (defrule generate-java-code-aggregation
+            ?agg <- (aggregation (whole ?whole) (part ?part) (multiplicity ?m))
+            =>
+            (printout t "// Agregación entre " ?whole " y " ?part crlf)
+            (printout t "class " ?whole " {" crlf)
+            (printout t "   LinkedList<" ?part "> partes;" crlf "}" crlf)
+        )
+        ''')
 
 ##############################################################################            
 
-# Abre el archivo en modo lectura
-xmi_file_path = 'generated/xmi/diagram.xmi'
+# # Abre el archivo en modo lectura
+# xmi_file_path = 'generated/xmi/diagram.xmi'
 
-if os.path.exists(xmi_file_path):
-    with open(xmi_file_path, 'r') as archivo:
-        xmi_data = archivo.read()
-else:
-    print(f"Error: No se encontró el archivo {xmi_file_path}")
+# if os.path.exists(xmi_file_path):
+#     with open(xmi_file_path, 'r') as archivo:
+#         xmi_data = archivo.read()
+# else:
+#     print(f"Error: No se encontró el archivo {xmi_file_path}")
 
-# Archivo de salida CLIPS
-clips_file = 'output.clp'
+# # Archivo de salida CLIPS
+# clips_file = 'output.clp'
 
 # try:
 #     root = parse_xmi('example.xmi')

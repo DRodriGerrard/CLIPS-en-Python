@@ -1,7 +1,7 @@
 from flask import Flask, render_template, request, send_file, redirect, url_for
 import os
 import clips  # clipspy
-from Traductor import parse_xmi, extract_classes, generate_clips_facts, write_clips_file, run_clips_and_get_java
+from Traductor import parse_xmi, extract_classes_and_relationships, generate_clips_facts, write_clips_file, run_clips_and_get_java
 
 app = Flask(__name__)
 
